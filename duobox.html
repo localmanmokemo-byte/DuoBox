@@ -4,10 +4,18 @@
 <meta charset="utf-8">
 <script>
 /* Rebuild bootstrap: if a hand-edited full-source override is saved on this device,
-   load it instead of the built-in file. If the last attempt to load it never finished
-   (it crashed), auto-revert to the built-in version so one bad edit can't lock you out. */
+   navigate to it instead of running the built-in file. This uses a real navigation
+   (Blob URL) rather than document.write, because document.write only inserts content
+   mid-parse and then keeps parsing the rest of the original page afterward — it doesn't
+   discard it, which caused every top-level variable to get declared twice.
+   If the last attempt to load an override never finished (it crashed), auto-revert to
+   the built-in version so one bad edit can't lock you out. */
 (function(){
-  if(window.__duoboxBootChecked) return; /* already ran once this pageview — a document.write below re-parses this same script, so stop it looping on itself */
+  try{
+    if(location.protocol !== 'blob:') localStorage.setItem('duobox.homeUrl', location.href);
+  }catch(e){}
+  if(location.protocol === 'blob:') return; /* this already IS an applied rebuild — just run it */
+  if(window.__duoboxBootChecked) return;
   window.__duoboxBootChecked = true;
   try{
     var pending = localStorage.getItem('duobox.overridePending');
@@ -20,7 +28,8 @@
     }
     if(src){
       localStorage.setItem('duobox.overridePending','1');
-      document.open(); document.write(src); document.close();
+      var blobUrl = URL.createObjectURL(new Blob([src], {type:'text/html'}));
+      location.replace(blobUrl);
     }
   }catch(e){}
 })();
@@ -923,8 +932,8 @@ function startTask(cfg){
     host=$("#proofhost");
   }
   cleanupProof=mountProof(cfg.proof, host, ()=>finish(true));
-  paint();
   const noTimers=S.mods.cheats.noTimers;
+  paint();
   const tick=setInterval(()=>{ if(noTimers) return; left--; paint(); if(left<=0) finish(false,"Time's up."); },1000);
 
   function paint(){
@@ -1374,6 +1383,7 @@ $("#srccopy").onclick=()=>{
   const v=$("#srcarea").value||LIVE_SOURCE;
   if(navigator.clipboard) navigator.clipboard.writeText(v).then(()=>toast("Copied")).catch(()=>toast("Couldn't copy"));
 };
+function homeUrl(){ try{ return localStorage.getItem('duobox.homeUrl')||location.href; }catch(e){ return location.href; } }
 $("#srcapply").onclick=()=>{
   const html=$("#srcarea").value.trim();
   if(!html) return toast("Nothing to apply — load the source first");
@@ -1382,14 +1392,18 @@ $("#srcapply").onclick=()=>{
   $("#srcerr").textContent="";
   try{
     localStorage.setItem('duobox.sourceOverride', html);
-    localStorage.setItem('duobox.overridePending','1');
   }catch(e){ toast("Couldn't save — storage might be full"); return; }
-  document.open(); document.write(html); document.close();
+  toast("Rebuilding…");
+  const home=homeUrl();
+  setTimeout(()=>{
+    if(location.protocol==='blob:' || location.href!==home) location.href=home;
+    else location.reload();
+  }, 300);
 };
 $("#srcrevert").onclick=()=>{
   if(!confirm("Revert to the built-in version? This clears any source edits saved on this device.")) return;
   try{ localStorage.removeItem('duobox.sourceOverride'); localStorage.removeItem('duobox.overridePending'); }catch(e){}
-  location.reload();
+  location.href=homeUrl();
 };
 window.DUOBOX.LIVE_SOURCE = LIVE_SOURCE;
 const stage=$("#stage");
